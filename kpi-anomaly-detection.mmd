@@ -1,0 +1,70 @@
+---
+title: KPI Anomaly Detection
+---
+stateDiagram-v2
+    state if_state <<choice>>
+    state if_data_volume_state <<choice>>
+    state HasSchema <<choice>>
+    [*] --> IsStreamed
+    note left of [*]
+        Citizen Developer has a KPI with variable data quality issue where Anomaly Detection might give valuable insights
+        E.G.: Inventory count, interactions count
+        System will raise Slack channel alerts to reviewed in Business Hours
+        First, we need to figure out if the data is being streamed to Kafka with a proper schema, then we can leverage a generic pod to output the data.
+        On the other hand, the source would need to define a Schema and register it and use the FirehoseHttpSDK to send the data
+    end note
+    IsStreamed: Is Data Being Streamed to Kafka
+    IsStreamedTrue: Yes
+    IsStreamedFalse: No
+    IsStreamed --> if_state
+    if_state --> IsStreamedTrue
+    if_state --> IsStreamedFalse 
+    IsStreamedFalse --> DefineSchemaEndpoint       
+    if_data_volume_state --> DataVolumeHigh: if req/sec > 500,000
+    note right of DataVolumeHigh
+        Not Implemented
+    end note
+    if_data_volume_state --> DataVolumeLow: if req/sec < 500,000
+    DataVolumeLow --> FirehoseHttpSdk        
+    note left of FirehoseHttpSdk
+        Need to provide an abstraction over Firehose SDK
+        - Batching / Record Deaggregation
+        - Retry Mechanism
+        Glue Schema Registry
+        Realtime Partition Update using S3 Events 
+    end note
+    HasSchema: Has Proper Schema
+    note left of HasSchema
+       Schema should be defined in Avro/Protobuf
+    end note
+    HasSchemaYes: Schema in Glue Registry
+    HasSchemaNo: Unavailable
+    IsStreamedTrue --> HasSchema
+    DefineSchemaEndpoint --> if_data_volume_state
+    HasSchema --> HasSchemaYes: yes
+    HasSchema --> HasSchemaNo: no
+    HasSchemaNo --> DefineSchemaEndpoint
+    HasSchemaYes --> CustomKafkaSync
+    CustomKafkaSync --> if_data_volume_state
+    CustomKafkaSync: Sink
+    DataVolumeHigh --> DataStreams
+    DataStreams --> Firehose
+    Firehose --> S3
+    SQS --> S3
+    note right of SQS
+        PutCreated events triggered in S3
+    end note
+    SQS --> LambdaPartition
+    LambdaPartition --> Glue
+    Glue --> Athena
+    FirehoseHttpSdk --> Firehose
+    CloudwatchEvents --> Lambda
+    Lambda --> Athena
+    note left of CloudwatchEvents
+        Schedule a job to run every 10 minutes interval
+    end note
+    Lambda --> CloudwatchMetrics
+    CloudwatchMetrics --> OpsGenie
+    OpsGenie --> Slack
+    Slack --> ExclusionLambda
+    ExclusionLambda --> CloudwatchMetrics
