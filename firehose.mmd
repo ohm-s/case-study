@@ -1,0 +1,30 @@
+sequenceDiagram
+    Jvm->>+SdkConsumerApp: Launch
+    SdkConsumerApp->>+FirehoseDispatcher: Initiliaze (Factory)
+    FirehoseDispatcher->>+Coroutines: Launches 2 Threads
+    Coroutines->>+Coroutines: Acquire semaphore
+    FirehoseDispatcher->>+Jvm: Register a shutdown handler with JVM
+    SdkConsumerApp->>+FirehoseDispatcher: putRecordAsync(streamName, data)
+    FirehoseDispatcher->>+FirehoseDispatcher: Message Encoding from Avro classes to JSON
+    FirehoseDispatcher->>+Coroutines: Submitting messages over channels
+    Coroutines->>+FirehoseBatchManager: Forwarding messages
+    FirehoseBatchManager->>+FirehoseBatchManager: Check for Limitations and rotate batches
+    Coroutines->>+FirehoseBatchManager: every 20ms, force rotate batches
+    FirehoseBatchManager->>+FirehoseBatchManager: List of batches ready to be submitted
+    FirehoseBatchManager->>+Coroutines: Return a list of pending batches
+    Coroutines->>+FirehoseSDKClient: Submit batch to AWS Firehose
+    FirehoseSDKClient->>+FirehoseSDKClient: Keep track of operations
+    FirehoseSDKClient->>+FirehoseSDKClient: Flushes the data
+    FirehoseSDKClient->>+Coroutines: On rate limit from AWS
+    Coroutines->>+FirehoseBatchManager: Requeue the batch
+    Jvm->>+Jvm: Main thread has exited
+    Jvm->>+FirehoseDispatcher: Invoke shutdown handler
+    FirehoseDispatcher->>+Coroutines: Flush out data
+    FirehoseDispatcher->>+FirehoseDispatcher: Wait on a semaphore
+    Coroutines->>+FirehoseBatchManager: Submit pending batches
+    Coroutines->>+Coroutines: Keep blocking the dispatcher until all batches are flushed
+    Coroutines->>+FirehoseDispatcher: Unlock a semphare
+    FirehoseDispatcher->>+Jvm: Shutdown handler complete
+
+    
+            
